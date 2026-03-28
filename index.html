@@ -92,10 +92,13 @@
             width: 150px; min-height: 120px; border: 2px dashed rgba(255,255,255,0.3); 
             border-radius: 15px; display: flex; flex-direction: column; align-items: center; 
             justify-content: center; background: rgba(0,0,0,0.2); padding: 8px; transition: 0.3s;
+            cursor: pointer;
         }
         .drop-zone.correct { border: 3px solid var(--success) !important; background: rgba(0, 184, 148, 0.15) !important; }
         .drop-zone.wrong { border: 3px solid var(--danger) !important; background: rgba(214, 48, 49, 0.15) !important; }
-        .drag-img { width: 75px; height: 75px; background: white; border-radius: 10px; cursor: grab; padding: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); }
+        
+        .drag-img { width: 75px; height: 75px; background: white; border-radius: 10px; cursor: pointer; padding: 5px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); transition: 0.2s; }
+        .drag-img.selected { outline: 5px solid var(--warning); transform: scale(1.05); box-shadow: 0 0 15px var(--warning); }
 
         .speaker-btn { background: none; border: none; font-size: 1.2rem; cursor: pointer; color: var(--secondary); padding: 5px; }
         .speaker-btn.large { font-size: 1.8rem; }
@@ -116,7 +119,7 @@
     <button onclick="changeMode('copy')" id="nav-copy">Overschrijven</button>
     <button onclick="changeMode('translate')" id="nav-translate">Vertaal</button>
     <button onclick="changeMode('memory')" id="nav-memory">Memory</button>
-    <button onclick="changeMode('drag')" id="nav-drag">Sleep</button>
+    <button onclick="changeMode('drag')" id="nav-drag">Verbinden</button>
     <button onclick="openVocab()" style="color:var(--warning)">📖 Woordenlijst</button>
     <button onclick="startTest()" id="nav-test" style="border: 1px solid var(--warning)">Toets</button>
     <button onclick="goToSelection()" style="background:var(--danger); color:white">❌ Stop</button>
@@ -179,6 +182,7 @@ let currentDragMatches = 0;
 let testData = [];
 let memoryMatches = 0;
 let memoryPairsCount = 0;
+let selectedImageData = null;
 
 async function init() {
     const promises = rawVocab.map(async (item) => {
@@ -320,42 +324,68 @@ function renderGame(testItem = null) {
 
 function renderDragArea(count) {
     const area = document.getElementById('game-area');
-    currentDragMatches = 0; let testDragResults = [];
+    currentDragMatches = 0; 
+    selectedImageData = null;
+    let testDragResults = [];
     const subset = [...activeData].sort(() => 0.5 - Math.random()).slice(0, count);
-    area.innerHTML = `<div id="drags" style="display:flex;gap:15px;justify-content:center;margin-bottom:30px;min-height:90px"></div><div id="drops" style="display:flex;gap:15px;justify-content:center;flex-wrap:wrap"></div>`;
+    
+    area.innerHTML = `<div id="drags" style="display:flex;gap:15px;justify-content:center;margin-bottom:30px;min-height:90px;flex-wrap:wrap"></div><div id="drops" style="display:flex;gap:15px;justify-content:center;flex-wrap:wrap"></div>`;
     
     subset.forEach(i => {
-        const img = document.createElement('img'); img.src = i.img; img.className = 'drag-img'; img.id = 'drag-' + i.fr.replace(/[^a-zA-Z]/g, ''); img.draggable = true;
-        img.ondragstart = (e) => e.dataTransfer.setData("fr", i.fr);
+        const img = document.createElement('img');
+        img.src = i.img;
+        img.className = 'drag-img';
+        img.id = 'img-' + i.fr.replace(/[^a-zA-Z]/g, '');
+        img.onclick = () => {
+            document.querySelectorAll('.drag-img').forEach(el => el.classList.remove('selected'));
+            img.classList.add('selected');
+            selectedImageData = i;
+        };
         document.getElementById('drags').appendChild(img);
     });
 
     [...subset].sort(() => 0.5 - Math.random()).forEach((i, idx) => {
-        const dz = document.createElement('div'); dz.className = 'drop-zone'; dz.id = 'dz-' + idx; 
+        const dz = document.createElement('div');
+        dz.className = 'drop-zone';
+        dz.id = 'dz-' + idx; 
         dz.innerHTML = `<div style="display:flex;align-items:center;gap:5px"><b>${i.fr}</b> <button class="speaker-btn" onclick="speak('${esc(i.fr)}')">🔊</button></div>`;
-        dz.ondragover = (e) => e.preventDefault();
-        dz.ondrop = (e) => {
-            const fr = e.dataTransfer.getData("fr");
-            if(!testActive && fr !== i.fr) return;
-            const itemData = activeData.find(d => d.fr === fr);
-            dz.innerHTML = `<img src="${itemData.img}" style="width:60px">`;
-            if(testActive) { testDragResults.push({ zoneId: 'dz-'+idx, isCorrect: (fr === i.fr) }); } 
-            else { dz.className = 'drop-zone correct'; speak(i.fr); }
-            currentDragMatches++;
-            const draggedEl = document.getElementById('drag-' + fr.replace(/[^a-zA-Z]/g, ''));
-            if(draggedEl) draggedEl.style.visibility = 'hidden';
+        
+        dz.onclick = () => {
+            if (!selectedImageData) return;
+            const clickedImgData = selectedImageData;
+            
+            if (!testActive && clickedImgData.fr !== i.fr) {
+                dz.classList.add('wrong');
+                setTimeout(() => dz.classList.remove('wrong'), 500);
+                return; 
+            }
 
-            if(currentDragMatches === count) {
-                if(testActive) {
+            dz.innerHTML = `<img src="${clickedImgData.img}" style="width:60px">`;
+            
+            if (testActive) {
+                testDragResults.push({ zoneId: 'dz-' + idx, isCorrect: (clickedImgData.fr === i.fr) });
+            } else {
+                dz.className = 'drop-zone correct';
+                speak(i.fr);
+            }
+
+            const draggedEl = document.getElementById('img-' + clickedImgData.fr.replace(/[^a-zA-Z]/g, ''));
+            if (draggedEl) draggedEl.style.visibility = 'hidden';
+            
+            selectedImageData = null;
+            currentDragMatches++;
+
+            if (currentDragMatches === count) {
+                if (testActive) {
                     testDragResults.forEach(res => {
                         const el = document.getElementById(res.zoneId);
                         el.className = 'drop-zone ' + (res.isCorrect ? 'correct' : 'wrong');
-                        if(res.isCorrect) { testScore++; updateScore(); }
+                        if (res.isCorrect) { testScore++; updateScore(); }
                     });
                 } else {
-                    document.getElementById('feedback').innerText = posFeedbacks[Math.floor(Math.random()*posFeedbacks.length)];
+                    document.getElementById('feedback').innerText = posFeedbacks[Math.floor(Math.random() * posFeedbacks.length)];
                 }
-                setTimeout(() => { if(testActive) nextTest(); else renderGame(); }, 2000);
+                setTimeout(() => { if (testActive) nextTest(); else renderGame(); }, 2000);
             }
         };
         document.getElementById('drops').appendChild(dz);
